@@ -28,31 +28,36 @@ func main() {
 	Do(ctx)
 }
 
-type myStruct struct {
-}
-
+// is a struct that implement Response interface of ordered package
 type response struct {
 	messageCh chan string
 	message   string
-	err       error
 }
 
-func (r response) Send() {
+// Send implements Send methd of ordered.Response
+func (r *response) Send() {
 	r.messageCh <- r.message
 }
 
-type worker struct {
-	message string
-	index   int
-	respCh  chan string
+// Send implements Close methd of ordered.Response
+func (r *response) Close() {
+	close(r.messageCh)
 }
 
+// worker is a worker struct
+type worker struct {
+	index   int         // worker's index, to keep track of outputed order
+	message string      // just some message to print as a response example
+	respCh  chan string // channel, into which responses will be published
+}
+
+// getResponse is a func that will be executed in each worker
 func (w *worker) getResponse() ordered.Response {
 	rand.Seed(time.Now().UnixNano())
-	n := rand.Intn(5) // n will be between 0 and 10
-	time.Sleep(time.Duration(n) * time.Second)
-	w.index++
-	return response{
+	n := rand.Intn(5)                          // n will be between 0 and 10
+	time.Sleep(time.Duration(n) * time.Second) // sleep randomly and send a responsse after that
+	w.index++                                  // increase index after each iteration
+	return &response{
 		messageCh: w.respCh,
 		message:   w.message + strconv.Itoa(w.index),
 	}
@@ -61,7 +66,7 @@ func (w *worker) getResponse() ordered.Response {
 // Do does something
 func Do(ctx context.Context) {
 	responseCh := make(chan string)
-	myWorkers := []*worker{
+	myWorkers := []*worker{ // 2 workers are created. to make the track of order easier, method is passed
 		{
 			message: "worker ",
 			index:   100,
@@ -116,25 +121,17 @@ func Do(ctx context.Context) {
 
 	log.Printf("created %d workers\n", len(myWorkers))
 
-	workers := make([]ordered.Worker, 0, len(myWorkers))
+	pool := ordered.New(ctx, len(myWorkers)) // create new pool with wnated number of workers
+	ww := make([]func() ordered.Response, 0, len(myWorkers))
 	for _, w := range myWorkers {
-		workers = append(workers, ordered.NewWorker(w.getResponse))
+		ww = append(ww, w.getResponse) // create an array of ordered.Worker to pass to ordered.Pool in a specific order
 	}
 
-	pool := ordered.New(ctx, len(myWorkers))
-	pool.AddWorkers(workers...)
-	go pool.Start()
-	go pool.Read()
+	pool.AddWorkers(ww...) // add workers to the pool
+	go pool.Read()         // start reading responce sreom workers
+	go pool.Start()        // start workers
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case r, ok := <-responseCh:
-			if !ok {
-				return
-			}
-			fmt.Println("response ", r)
-		}
+	for r := range responseCh {
+		fmt.Println("response ", r)
 	}
 }
