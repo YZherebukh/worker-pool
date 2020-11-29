@@ -4,8 +4,8 @@ type worker struct {
 	work func() Response
 }
 
-// NewWorker creates new worker
-func NewWorker(w func() Response) Worker {
+// newWorker creates new worker
+func newWorker(w func() Response) Worker {
 	return &worker{
 		work: w,
 	}
