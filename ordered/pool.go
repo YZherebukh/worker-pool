@@ -27,14 +27,7 @@ type Pool struct {
 // New creates new ordered workers pool
 func New(ctx context.Context, workersNumber int) *Pool {
 	pool := &Pool{
-		ctx:            ctx,
-		workerNumberCh: make(chan int, workersNumber), // create a chnanel, that informes which worker should pick up the job
-	}
-
-	pool.responseChnls = make([]chan Response, workersNumber) // slice of channels with a responses of each worker, in a specific order
-	for i := range pool.responseChnls {
-		pool.responseChnls[i] = make(chan Response)
-		pool.workerNumberCh <- i // sending worker number to the queue for it to be picked up later
+		ctx: ctx,
 	}
 
 	return pool
@@ -43,21 +36,38 @@ func New(ctx context.Context, workersNumber int) *Pool {
 // AddWorkers is adding workers to run the job
 // expected that each specific worker will have his own set of parameters
 func (p *Pool) AddWorkers(ff ...func() Response) {
-	p.workers = make([]Worker, 0, len(p.workerNumberCh))
+	workers := make([]Worker, 0, len(ff))
 
 	for _, f := range ff {
-		p.workers = append(p.workers, newWorker(f))
+		workers = append(workers, newWorker(f))
+	}
+
+	p.addWorkers(workers)
+}
+
+func (p *Pool) addWorkers(workers []Worker) {
+	p.workers = workers
+
+	p.workerNumberCh = make(chan int, len(workers)) // create a chnanel, that informes which worker should pick up the job
+
+	p.responseChnls = make([]chan Response, len(workers)) // slice of channels with a responses of each worker, in a specific order
+
+	for i := range p.responseChnls {
+		p.responseChnls[i] = make(chan Response) // creating response channel for each worker
+		p.workerNumberCh <- i                    // sending worker number to the queue for it to be picked up later
 	}
 }
 
 // AddWorker is adding workers to run the job
 // expected that each specific worker will have his own set of parameters
-func (p *Pool) AddWorker(f func() Response) {
-	p.workers = make([]Worker, 0, len(p.workerNumberCh))
+func (p *Pool) AddWorker(workersNumber int, f func() Response) {
+	workers := make([]Worker, 0, workersNumber)
 
 	for i := range p.workers {
-		p.workers[i] = newWorker(f)
+		workers[i] = newWorker(f)
 	}
+
+	p.addWorkers(workers)
 }
 
 // Start starts ordered worker's pool
@@ -101,10 +111,10 @@ func (p *Pool) readAndClose(respCh chan Response) {
 	if !ok {
 		return
 	}
+	close(respCh)
 
 	response.Send()
 	if len(p.responseChnls) == 1 {
 		response.Close()
 	}
-	close(respCh)
 }

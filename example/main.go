@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/worker-pool/workers/ordered"
+	"github.com/worker-pool/ordered"
 )
 
 func main() {
